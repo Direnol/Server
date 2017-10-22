@@ -28,18 +28,13 @@ Server::Server(char *ip, uint16_t port, int max_clients)
                    "log_file [%s]\n", ip, port, max_clients, log);
     work = true;
     this->threads.emplace_back(std::thread(&Server::log, this));
-    threads.back().detach();
 }
 
 Server::~Server()
 {
-    close(this->_listner);
-    for (auto &i : threads) {
-        i.~thread();
-    }
     printf("Server is finished.\n"
                    "ip [%s]\n"
-                   "port [%d]", inet_ntoa(_addr.sin_addr), ntohs(this->_addr.sin_port));
+                   "port [%d]\n", inet_ntoa(_addr.sin_addr), ntohs(this->_addr.sin_port));
 }
 
 void Server::log()
@@ -55,6 +50,7 @@ void Server::log()
             qmutex.unlock();
         }
     }
+    std::cout << "Logger if off" << std::endl;
 }
 
 void Server::openConnect()
@@ -65,7 +61,8 @@ void Server::openConnect()
     std::string nameConnect;
     while (work) {
         newconnect = accept(this->_listner, (sockaddr *) &addr_client, &socklen);
-        if (newconnect < 0) {
+        if (newconnect <= 0) {
+            if (errno == EBADF) break;
             perror(nullptr);
             continue;
         }
@@ -75,7 +72,9 @@ void Server::openConnect()
         ID[newconnect] = nameConnect;
 
         threads.emplace_back(&Server::RecvMsg, this, newconnect);
-        threads.back().detach();
+    }
+    for (auto &thread : threads) {
+        thread.join();
     }
 }
 
@@ -88,22 +87,25 @@ void Server::RecvMsg(int sock)
     ssize_t res;
     while (work) {
         res = recv(fd, buf.data(), buf.size(), 0);
-        if (res < 0) {
+        if (res <= 0) {
             perror(nullptr);
             break;
         }
         qmutex.lock();
-        qmsg.push((msg.assign(buf.begin(), buf.end())));
+        qmsg.push(ID[fd] + ":" + (msg.assign(buf.data(), static_cast<unsigned long>(res))));
+        std::cout << qmsg.back() << std::endl;
         qmutex.unlock();
 
     }
     std::cout << "Client with " << ID[fd] << " has been disconected" << std::endl;
+    close(fd);
     ID.erase(fd);
 }
 
 void Server::CloseServer()
 {
     std::cout << "Server start finish" << std::endl;
+    close(this->_listner);
     work = false;
 }
 
