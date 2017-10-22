@@ -9,6 +9,9 @@
 #include <queue>
 #include <fstream>
 #include <map>
+#include <mutex>
+
+#define BUF_SIZE 512
 
 class Server {
 private:
@@ -17,13 +20,15 @@ private:
     int _listner;
     struct sockaddr_in _addr;
     std::queue<std::string> qmsg;
-    pthread_mutex_t qmutex;
+    std::mutex qmutex;
     std::map<int, std::string> ID;
     std::vector<std::thread> threads;
     void log();
+
+    void RecvMsg(int sock);
 protected:
-    void recv(int sock);
 public:
+    void CloseServer();
     Server(char *ip, uint16_t port, int max_clients);
     void openConnect();
     ~Server();

@@ -1,3 +1,4 @@
+#include <signal.h>
 #include "Server.h"
 
 Server::Server(char *ip, uint16_t port, int max_clients)
@@ -9,7 +10,7 @@ Server::Server(char *ip, uint16_t port, int max_clients)
     }
     int on = 1;
     setsockopt(this->_listner, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
-    this->_addr.sin_family = AF_INET; // space addr
+    this->_addr.sin_family = AF_INET;
     this->_addr.sin_port = htons(port); // port
     this->_addr.sin_addr.s_addr = inet_addr(ip);
     if (bind(this->_listner, (sockaddr *) &this->_addr, sizeof(this->_addr)) < 0) {
@@ -25,7 +26,6 @@ Server::Server(char *ip, uint16_t port, int max_clients)
                    "port [%d]\n"
                    "max clients [%d]\n"
                    "log_file [%s]\n", ip, port, max_clients, log);
-    pthread_mutex_init(&this->qmutex, nullptr);
     work = true;
     this->threads.emplace_back(std::thread(&Server::log, this));
     threads.back().detach();
@@ -34,8 +34,8 @@ Server::Server(char *ip, uint16_t port, int max_clients)
 Server::~Server()
 {
     close(this->_listner);
-    for (int i = 0; i < threads.size(); ++i) {
-        threads[i].~thread();
+    for (auto &i : threads) {
+        i.~thread();
     }
     printf("Server is finished.\n"
                    "ip [%s]\n"
@@ -47,19 +47,19 @@ void Server::log()
     std::cout << "Logger is on" << std::endl;
     while (work) {
         if (!qmsg.empty()) {
-            pthread_mutex_lock(&qmutex);
+            qmutex.lock();
             while (!qmsg.empty()) {
                 log_file << qmsg.front() << std::endl;
                 qmsg.pop();
             }
-            pthread_mutex_unlock(&qmutex);
+            qmutex.unlock();
         }
     }
 }
 
 void Server::openConnect()
 {
-    int newconnect;
+    int newconnect = 0;
     socklen_t socklen = sizeof(this->_addr);
     sockaddr_in addr_client {};
     std::string nameConnect;
@@ -74,13 +74,36 @@ void Server::openConnect()
         printf("New connection: %s\n", nameConnect.c_str());
         ID[newconnect] = nameConnect;
 
-        threads.emplace_back(&Server::recv, this, newconnect);
+        threads.emplace_back(&Server::RecvMsg, this, newconnect);
         threads.back().detach();
     }
 }
 
-void Server::recv(int sock)
+void Server::RecvMsg(int sock)
 {
+    int fd = sock;
+    std::cout << "Client with " << this->ID[fd] << " has been conected" << std::endl;
+    std::vector<char> buf(BUF_SIZE);
+    std::string msg;
+    ssize_t res;
+    while (work) {
+        res = recv(fd, buf.data(), buf.size(), 0);
+        if (res < 0) {
+            perror(nullptr);
+            break;
+        }
+        qmutex.lock();
+        qmsg.push((msg.assign(buf.begin(), buf.end())));
+        qmutex.unlock();
 
+    }
+    std::cout << "Client with " << ID[fd] << " has been disconected" << std::endl;
+    ID.erase(fd);
+}
+
+void Server::CloseServer()
+{
+    std::cout << "Server start finish" << std::endl;
+    work = false;
 }
 
